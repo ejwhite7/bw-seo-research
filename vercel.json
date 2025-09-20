@@ -10,28 +10,7 @@
   "functions": {
     "src/app/api/**/*.ts": {
       "maxDuration": 300,
-      "memory": 1024,
-      "runtime": "nodejs20.x"
-    },
-    "src/app/api/dream100/**/*.ts": {
-      "maxDuration": 300,
-      "memory": 1024,
-      "runtime": "nodejs20.x"
-    },
-    "src/app/api/universe/**/*.ts": {
-      "maxDuration": 300,
-      "memory": 1024,
-      "runtime": "nodejs20.x"
-    },
-    "src/app/api/clustering/**/*.ts": {
-      "maxDuration": 300,
-      "memory": 1024,
-      "runtime": "nodejs20.x"
-    },
-    "src/app/api/export/**/*.ts": {
-      "maxDuration": 300,
-      "memory": 1024,
-      "runtime": "nodejs20.x"
+      "memory": 1024
     }
   },
   
