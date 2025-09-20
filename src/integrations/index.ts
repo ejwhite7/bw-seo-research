@@ -1,7 +1,7 @@
 // Integration factory and health monitoring
 import { AhrefsClient } from './ahrefs';
 import { AnthropicClient } from './anthropic';
-import { WebScraper } from './scraper';
+import { EnhancedWebScraper } from './enhanced-scraper';
 import { ApiMetrics } from '../types/api';
 import { SentryReporter } from '../utils/sentry';
 import * as Sentry from '@sentry/nextjs';
@@ -51,7 +51,7 @@ export class IntegrationFactory {
   private static instance: IntegrationFactory | null = null;
   private ahrefs: AhrefsClient | null = null;
   private anthropic: AnthropicClient | null = null;
-  private scraper: WebScraper | null = null;
+  private scraper: EnhancedWebScraper | null = null;
   private config: IntegrationConfig | null = null;
   private healthCache: IntegrationHealth | null = null;
   private healthCacheExpiry: number = 0;
@@ -96,10 +96,10 @@ export class IntegrationFactory {
     // Initialize Scraper if enabled
     if (config.scraper?.enabled) {
       try {
-        this.scraper = WebScraper.getInstance(config.redis);
-        console.log('✓ Web scraper integration initialized');
+        this.scraper = EnhancedWebScraper.getInstance(config.redis);
+        console.log('✓ Enhanced web scraper with Firecrawl integration initialized');
       } catch (error) {
-        console.error('✗ Failed to initialize Web scraper:', (error as Error).message);
+        console.error('✗ Failed to initialize Enhanced web scraper:', (error as Error).message);
         Sentry.captureException(error, { tags: { integration: 'scraper' } });
       }
     }
@@ -140,11 +140,11 @@ export class IntegrationFactory {
   }
   
   /**
-   * Get Web scraper instance
+   * Get Enhanced web scraper instance
    */
-  public getScraper(): WebScraper {
+  public getScraper(): EnhancedWebScraper {
     if (!this.scraper) {
-      throw new Error('Web scraper integration not initialized. Check configuration.');
+      throw new Error('Enhanced web scraper integration not initialized. Check configuration.');
     }
     return this.scraper;
   }
@@ -445,7 +445,7 @@ export const integrations = IntegrationFactory.getInstance();
 // Export individual clients for direct import
 export { AhrefsClient } from './ahrefs';
 export { AnthropicClient } from './anthropic';
-export { WebScraper } from './scraper';
+export { EnhancedWebScraper } from './enhanced-scraper';
 
 // Export new keyword provider clients
 export { MozClient, createMozClient, isMozConfigured } from './moz';

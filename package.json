@@ -50,6 +50,7 @@
     "@headlessui/react": "^2.2.7",
     "@heroicons/react": "^2.2.0",
     "@hookform/resolvers": "^5.2.1",
+    "@mendable/firecrawl-js": "^4.3.5",
     "@sentry/nextjs": "^10.5.0",
     "@supabase/supabase-js": "^2.55.0",
     "axios": "^1.11.0",

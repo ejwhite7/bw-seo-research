@@ -457,3 +457,21 @@ export class AhrefsClient extends BaseApiClient {
     return this.getKeywordOverview(keyword, market);
   }
 }
+
+/**
+ * Factory function to create Ahrefs client instance
+ */
+export function createAhrefsClient(apiKey: string, redis?: any): AhrefsClient {
+  return AhrefsClient.getInstance(apiKey, redis);
+}
+
+/**
+ * Check if Ahrefs is configured
+ */
+export function isAhrefsConfigured(): boolean {
+  return !!(
+    process.env.AHREFS_API_KEY &&
+    process.env.AHREFS_API_KEY !== 'your-ahrefs-api-key' &&
+    process.env.ENABLE_AHREFS !== 'false'
+  );
+}

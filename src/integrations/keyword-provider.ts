@@ -6,8 +6,7 @@
  * and falls back gracefully.
  */
 
-// Note: Ahrefs integration has some dependency issues - will add back later
-// import { AhrefsClient, isAhrefsConfigured } from './ahrefs';
+import { AhrefsClient, isAhrefsConfigured } from './ahrefs';
 import { MozClient, isMozConfigured, MozKeywordData } from './moz';
 import { SEMRushClient, isSEMRushConfigured, SEMRushKeywordData } from './semrush';
 
@@ -67,17 +66,15 @@ export class KeywordProvider {
    * Initialize available API providers
    */
   private initializeProviders(): void {
-    // Note: Ahrefs temporarily disabled due to dependency issues
-    // if (isAhrefsConfigured()) {
-    //   try {
-    //     this.providers.set('ahrefs', new AhrefsClient({
-    //       apiKey: process.env.AHREFS_API_KEY!
-    //     }));
-    //     console.log('✓ Ahrefs provider initialized');
-    //   } catch (error) {
-    //     console.warn('Failed to initialize Ahrefs provider:', error);
-    //   }
-    // }
+    // Initialize Ahrefs if configured
+    if (isAhrefsConfigured()) {
+      try {
+        this.providers.set('ahrefs', AhrefsClient.getInstance(process.env.AHREFS_API_KEY!, undefined));
+        console.log('✓ Ahrefs provider initialized');
+      } catch (error) {
+        console.warn('Failed to initialize Ahrefs provider:', error);
+      }
+    }
 
     // Initialize Moz if configured
     if (isMozConfigured()) {
@@ -328,8 +325,8 @@ export class KeywordProvider {
     }
 
     switch (providerName) {
-      // case 'ahrefs':
-      //   return await client.getKeywordMetrics(keyword, options?.location);
+      case 'ahrefs':
+        return await client.getKeywordOverview(keyword, options?.location);
       case 'moz':
         return await client.getKeywordMetrics(keyword, options?.location, options?.language);
       case 'semrush':
@@ -353,8 +350,8 @@ export class KeywordProvider {
     }
 
     switch (providerName) {
-      // case 'ahrefs':
-      //   return await client.getBulkKeywordMetrics(keywords, options?.location);
+      case 'ahrefs':
+        return await client.getBulkKeywordData(keywords, options?.location);
       case 'moz':
         return await client.getBulkKeywordMetrics(keywords, options?.location, options?.language);
       case 'semrush':
@@ -384,11 +381,11 @@ export class KeywordProvider {
 
     // Normalize difficulty (0-100 scale)
     switch (source) {
-      // case 'ahrefs':
-      //   normalized.difficulty = rawData.difficulty || null; // Already 0-100
-      //   normalized.competition = rawData.traffic_potential ? 
-      //     Math.min(rawData.traffic_potential / 1000 * 100, 100) : null;
-      //   break;
+      case 'ahrefs':
+        normalized.difficulty = rawData.difficulty || null; // Already 0-100
+        normalized.competition = rawData.traffic_potential ?
+          Math.min(rawData.traffic_potential / 1000 * 100, 100) : null;
+        break;
       case 'moz':
         normalized.difficulty = rawData.difficulty || null; // Already 0-100
         normalized.competition = rawData.opportunity ? 
@@ -491,11 +488,10 @@ export function getKeywordProvider(config?: KeywordProviderConfig): KeywordProvi
  */
 export function getAvailableProviders(): Array<'ahrefs' | 'moz' | 'semrush'> {
   const available: Array<'ahrefs' | 'moz' | 'semrush'> = [];
-  
-  // Note: Ahrefs temporarily disabled
-  // if (isAhrefsConfigured()) available.push('ahrefs');
+
+  if (isAhrefsConfigured()) available.push('ahrefs');
   if (isMozConfigured()) available.push('moz');
   if (isSEMRushConfigured()) available.push('semrush');
-  
+
   return available;
 }

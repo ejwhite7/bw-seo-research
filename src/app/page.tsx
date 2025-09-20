@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { getAvailableProviders } from '../integrations/keyword-provider';
 
 export default function Home() {
   const [keywords, setKeywords] = useState<string>('');
@@ -25,19 +24,25 @@ export default function Home() {
 
   // Check available providers on component mount
   useEffect(() => {
-    try {
-      const providers = getAvailableProviders();
-      setAvailableProviders(providers);
-      
-      if (providers.length > 0) {
-        setActiveProvider(providers[0]);
-      } else if (process.env.NEXT_PUBLIC_MOCK_EXTERNAL_APIS === 'true') {
+    async function checkProviders() {
+      try {
+        const response = await fetch('/api/providers/status');
+        const data = await response.json();
+
+        if (data.success && data.hasProviders) {
+          setAvailableProviders(data.providers);
+          setActiveProvider(data.providers[0]);
+        } else {
+          console.log('No providers available, using mock mode');
+          setActiveProvider('mock');
+        }
+      } catch (error) {
+        console.log('Error checking providers, using mock mode:', error);
         setActiveProvider('mock');
       }
-    } catch (error) {
-      console.log('No providers available, using mock mode');
-      setActiveProvider('mock');
     }
+
+    checkProviders();
   }, []);
 
   return (

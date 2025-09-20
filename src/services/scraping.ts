@@ -15,7 +15,7 @@
  */
 
 import { BaseApiClient } from '../integrations/base-client';
-import { WebScraper, ScrapedContent, ScrapeRequest, ScrapingResult } from '../integrations/scraper';
+import { EnhancedWebScraper, ScrapedContent, ScrapeRequest, ScrapingResult } from '../integrations/enhanced-scraper';
 import { AhrefsClient } from '../integrations/ahrefs';
 import { 
   Competitor, 
@@ -443,7 +443,7 @@ class DomainRateLimiter {
  * Main competitor research and scraping service
  */
 export class CompetitorResearchService {
-  private webScraper: WebScraper;
+  private webScraper: EnhancedWebScraper;
   private ahrefsClient: AhrefsClient;
   private domainRateLimiter: DomainRateLimiter;
   private robotsCache = new Map<string, {
@@ -460,7 +460,7 @@ export class CompetitorResearchService {
       scrapeConfig?: Partial<ScrapeConfig>;
     }
   ) {
-    this.webScraper = WebScraper.getInstance(options.redis);
+    this.webScraper = EnhancedWebScraper.getInstance(options.redis);
     this.ahrefsClient = AhrefsClient.getInstance(options.ahrefsApiKey, options.redis);
     
     this.domainRateLimiter = new DomainRateLimiter({

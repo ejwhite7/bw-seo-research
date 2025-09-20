@@ -7,11 +7,13 @@ import * as Sentry from '@sentry/nextjs';
 interface IntegrationEnvConfig {
   AHREFS_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
+  FIRECRAWL_API_KEY?: string;
   REDIS_URL?: string;
   NODE_ENV: string;
   ENABLE_AHREFS?: string;
   ENABLE_ANTHROPIC?: string;
   ENABLE_SCRAPER?: string;
+  ENABLE_FIRECRAWL?: string;
 }
 
 let redis: Redis | undefined;
@@ -32,10 +34,12 @@ export async function initializeIntegrations(config?: Partial<IntegrationEnvConf
       NODE_ENV: process.env.NODE_ENV || 'development',
       AHREFS_API_KEY: process.env.AHREFS_API_KEY,
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+      FIRECRAWL_API_KEY: process.env.FIRECRAWL_API_KEY,
       REDIS_URL: process.env.REDIS_URL,
       ENABLE_AHREFS: process.env.ENABLE_AHREFS || 'true',
       ENABLE_ANTHROPIC: process.env.ENABLE_ANTHROPIC || 'true',
       ENABLE_SCRAPER: process.env.ENABLE_SCRAPER || 'true',
+      ENABLE_FIRECRAWL: process.env.ENABLE_FIRECRAWL || 'true',
       ...config
     };
     
