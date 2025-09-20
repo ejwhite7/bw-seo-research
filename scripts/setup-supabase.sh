@@ -7,24 +7,11 @@ set -e
 
 echo "🚀 Setting up Dream 100 Keyword Engine database..."
 
-# Check if Supabase CLI is installed
-if ! command -v supabase &> /dev/null; then
-    echo "❌ Supabase CLI is not installed. Please install it first:"
-    echo "npm install -g supabase"
-    exit 1
-fi
-
-# Check if we're in the right directory
-if [ ! -f "supabase/config.toml" ]; then
-    echo "❌ Not in the root directory of the project. Please run this script from the project root."
-    exit 1
-fi
-
-# Load environment variables if .env.local exists
-if [ -f ".env.local" ]; then
-    echo "📝 Loading environment variables from .env.local"
-    export $(grep -v '^#' .env.local | xargs)
-fi
+# Load environment variables safely
+echo "📝 Loading environment variables from .env.local"
+set -a
+source .env.local
+set +a
 
 # Start Supabase local development
 echo "🔧 Starting Supabase local development environment..."
