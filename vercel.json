@@ -112,16 +112,8 @@
   
   "crons": [
     {
-      "path": "/api/cron/cache-warm",
-      "schedule": "0 */6 * * *"
-    },
-    {
       "path": "/api/cron/cleanup",
       "schedule": "0 2 * * *"
-    },
-    {
-      "path": "/api/cron/health-check",
-      "schedule": "*/5 * * * *"
     }
   ],
   
