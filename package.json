@@ -43,8 +43,7 @@
     "cleanup:cache": "rm -rf .next node_modules/.cache",
     "cleanup:test": "rm -rf test-results coverage .nyc_output",
     "precommit": "npm run lint && npm run type-check && npm run test:unit",
-    "prebuild": "npm run type-check",
-    "postinstall": "playwright install --with-deps"
+    "prebuild": "npm run type-check"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.59.0",
