@@ -1,7 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
-  "name": "bw-seo-research",
   "framework": "nextjs",
   "buildCommand": "npm run build",
   "installCommand": "npm ci",
@@ -17,18 +16,18 @@
       "runtime": "nodejs20.x"
     },
     "src/app/api/dream100/**/*.ts": {
-      "maxDuration": 900,
-      "memory": 3008,
+      "maxDuration": 300,
+      "memory": 1024,
       "runtime": "nodejs20.x"
     },
     "src/app/api/universe/**/*.ts": {
-      "maxDuration": 900,
-      "memory": 3008,
+      "maxDuration": 300,
+      "memory": 1024,
       "runtime": "nodejs20.x"
     },
     "src/app/api/clustering/**/*.ts": {
-      "maxDuration": 600,
-      "memory": 3008,
+      "maxDuration": 300,
+      "memory": 1024,
       "runtime": "nodejs20.x"
     },
     "src/app/api/export/**/*.ts": {
