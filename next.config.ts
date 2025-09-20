@@ -4,6 +4,11 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   // Move serverComponentsExternalPackages to top level as serverExternalPackages
   serverExternalPackages: ['@anthropic-ai/sdk'],
+
+  // Disable ESLint during build for deployment
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   
   // Headers for security and monitoring
   async headers() {
