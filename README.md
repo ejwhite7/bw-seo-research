@@ -1,259 +1,163 @@
-# 🚀 Dream 100 Keyword Engine
+# Dream 100 Keyword Engine
 
-> **AI-powered keyword research and editorial roadmap platform that transforms a single seed keyword into a comprehensive content strategy with 10,000+ keywords, semantic clustering, and automated editorial calendar generation.**
+AI-powered keyword research and editorial roadmap generation platform. Transform seed keywords into comprehensive content strategies with semantic clustering and automated editorial calendar generation.
 
-> ✅ **Status**: Database connected, environment variables configured, ready for production!
+[![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat&logo=next.js)](https://nextjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat&logo=typescript)](https://typescriptlang.org/)
+[![License](https://img.shields.io/badge/License-MIT-green?style=flat)](LICENSE)
 
-[![Next.js](https://img.shields.io/badge/Next.js-14+-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue?style=for-the-badge&logo=typescript)](https://typescriptlang.org/)
-[![Supabase](https://img.shields.io/badge/Supabase-Database-green?style=for-the-badge&logo=supabase)](https://supabase.com/)
-[![Vercel](https://img.shields.io/badge/Vercel-Deploy-black?style=for-the-badge&logo=vercel)](https://vercel.com/)
+## Features
 
-## ✨ Key Features
+- **5-Step Workflow**: Input → Dream 100 → Universe Expansion → Clusters → Editorial Roadmap
+- **AI-Powered Expansion**: Uses Claude 3.5 Sonnet to generate semantically related keywords
+- **Semantic Clustering**: Groups keywords by topic using embeddings
+- **Editorial Calendar**: Generates content schedules with AI-suggested titles
+- **CSV Export**: Export data at any step for use in other tools
+- **Flexible Deployment**: Works with minimal config (just Anthropic API key)
 
-### 🎯 **Complete Keyword Research Pipeline**
-- **Input → Dream 100 → Universe → Clusters → Roadmap** - 5-step workflow
-- **10,000 keyword processing** in ≤20 minutes with >85% topical relevance
-- **AI-powered expansion** using Anthropic Claude and Ahrefs data
-- **Stage-specific scoring** with tunable weights and quick win detection
-
-### 🤖 **Advanced AI & ML Capabilities**
-- **Semantic clustering** with embeddings and hierarchical analysis
-- **Intent classification** (commercial, transactional, informational, navigational)
-- **Competitor analysis** with ethical web scraping and robots.txt compliance
-- **Smart title generation** and content brief creation
-
-### 📊 **Production-Ready Platform**
-- **Real-time processing** with live progress tracking and ETA
-- **Enterprise security** with encrypted API keys and comprehensive monitoring
-- **Cost optimization** with 85% API cost reduction through intelligent caching
-- **Team collaboration** with DRI assignments and capacity planning
-
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
-- Node.js 18+ and npm/yarn
-- Supabase account and project
-- Ahrefs API key (preferred) 
-- Anthropic API key (preferred)
-- Redis instance (optional, for caching)
+
+- Node.js 18+
+- Anthropic API key ([get one here](https://console.anthropic.com/))
 
 ### Installation
 
 ```bash
 # Clone the repository
-git clone https://github.com/ejwhite7/bw-seo-research.git
-cd bw-seo-research
+git clone https://github.com/your-username/dream-100-keyword-engine.git
+cd dream-100-keyword-engine
 
 # Install dependencies
 npm install
 
 # Set up environment variables
-cp .env.local.example .env.local
-# Edit .env.local with your API keys and database URLs
-
-# Set up Supabase database
-npm run supabase:setup
+# Create .env.local with at minimum:
+# ANTHROPIC_API_KEY=your-api-key
 
 # Start development server
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to see the application.
+Open [http://localhost:3000](http://localhost:3000) to use the app.
 
-## 🎯 How It Works
+## Configuration
 
-### 1. **Seed Input & Configuration**
-- Enter 1-5 seed keywords (e.g., "social selling")
-- Configure API keys and processing preferences
-- Set target market (US, UK, CA, AU, etc.)
+### Required
 
-### 2. **Dream 100 Generation**
-- AI expansion generates 100 high-value head terms
-- Ahrefs enrichment adds volume, difficulty, CPC data
-- Intent classification and relevance scoring
-- Interactive weight tuning and filtering
+| Variable | Description |
+|----------|-------------|
+| `ANTHROPIC_API_KEY` | Your Anthropic API key for Claude AI |
 
-### 3. **Universe Expansion**
-- Tier-2: 10 mid-tail keywords per Dream 100 term (1,000 total)
-- Tier-3: 10 long-tail keywords per tier-2 term (10,000 total)
-- Complete metrics enrichment for all 10,010 keywords
-- Advanced deduplication and canonicalization
+### Recommended
 
-### 4. **Semantic Clustering**
-- Hierarchical clustering with configurable similarity thresholds
-- Pillar page and supporting post identification
-- Cluster quality metrics and manual editing tools
-- Intent distribution analysis per cluster
+| Variable | Description |
+|----------|-------------|
+| `DATAFORSEO_LOGIN` | DataForSEO email ([get credentials](https://dataforseo.com/)) |
+| `DATAFORSEO_PASSWORD` | DataForSEO password |
 
-### 5. **Editorial Roadmap**
-- Automated calendar generation (10-30 posts/month)
-- Team assignments with workload balancing
-- AI-generated titles and content briefs
-- CSV export for planning and execution
+DataForSEO provides keyword volume, difficulty, and CPC data at **~$0.002 per keyword** (pay-per-use). This is significantly more affordable than Ahrefs Enterprise ($14,990/year).
 
-## 🏗️ Technical Architecture
+### Optional
 
-### **Frontend Stack**
-- **Next.js 14** with App Router and React Server Components
-- **TypeScript** with strict mode and comprehensive type safety
-- **Tailwind CSS** with responsive design and accessibility
-- **React Hook Form + Zod** for validation and form handling
+| Variable | Description |
+|----------|-------------|
+| `ANTHROPIC_MODEL` | Model to use (default: `claude-3-5-sonnet-20241022`) |
+| `OPENAI_API_KEY` | For semantic clustering with embeddings |
+| `AHREFS_API_KEY` | Alternative keyword data (requires Enterprise plan) |
+| `REDIS_URL` | For API response caching |
+| `SENTRY_DSN` | For error monitoring |
 
-### **Backend & APIs**
-- **Next.js API Routes** with comprehensive error handling
-- **Supabase** database with Row Level Security and encryption
-- **Redis** caching with 30-day TTL and cost optimization
-- **Background Jobs** with Redis queues and progress tracking
+See [docs/env-example.md](docs/env-example.md) for full configuration options.
 
-### **External Integrations**
-- **Ahrefs API** for keyword metrics and SERP data
-- **Anthropic Claude** for AI-powered expansion and classification
-- **Ethical Web Scraping** with robots.txt compliance
-- **Sentry** for error tracking and performance monitoring
+## How It Works
 
-### **Performance & Security**
-- **Sub-20 minute processing** for 10,000 keywords (P95)
-- **85% API cost reduction** through intelligent caching
-- **Enterprise security** with encrypted keys and audit logging
-- **99.5%+ availability** with comprehensive monitoring
+### 1. Seed Input
+Enter 1-5 seed keywords (e.g., "social selling", "B2B marketing")
 
-## 📊 Performance Metrics
+### 2. Dream 100 Generation
+AI generates 100 high-value head terms related to your seeds, enriched with:
+- Search volume and difficulty (if Ahrefs configured)
+- Search intent classification
+- Relevance scoring
 
-| Metric | Target | Achieved |
-|--------|--------|----------|
-| **Processing Time** | ≤20 min (P95) | ✅ 15-18 min avg |
-| **Keyword Quality** | >85% relevance | ✅ 87% avg relevance |
-| **Cost Efficiency** | <$2 per 1K keywords | ✅ $1.20 avg cost |
-| **System Uptime** | >99.5% | ✅ 99.8% uptime |
-| **Cache Hit Rate** | >80% | ✅ 85% hit rate |
+### 3. Universe Expansion
+Each Dream 100 keyword expands into:
+- 10 Tier-2 mid-tail keywords (1,000 total)
+- 10 Tier-3 long-tail keywords per Tier-2 (9,000 total)
 
-## 🔧 Development
+### 4. Semantic Clustering
+Keywords are grouped by topic using:
+- Embedding-based similarity
+- Intent distribution analysis
+- Priority scoring
 
-### **Available Scripts**
+### 5. Editorial Roadmap
+Generate a content calendar with:
+- Pillar pages and supporting posts
+- AI-suggested titles
+- Publishing schedule
+- CSV export for execution
+
+## Deployment
+
+### Vercel (Recommended)
+
+1. Fork this repository
+2. Import to Vercel
+3. Add environment variables
+4. Deploy
+
+### Self-Hosted
 
 ```bash
-# Development
-npm run dev              # Start development server
-npm run build           # Build for production
-npm run start           # Start production server
-
-# Testing
-npm test                # Run all tests
-npm run test:unit       # Unit tests only
-npm run test:e2e        # End-to-end tests
-npm run test:coverage   # Coverage report
-
-# Code Quality
-npm run lint            # ESLint checking
-npm run type-check      # TypeScript checking
-npm run test:ci         # CI pipeline tests
-
-# Deployment
-npm run deploy:staging     # Deploy to staging
-npm run deploy:production  # Deploy to production
+npm run build
+npm start
 ```
 
-### **Project Structure**
+## Development
+
+```bash
+npm run dev          # Start dev server
+npm run build        # Build for production
+npm run lint         # Run linter
+npm run type-check   # TypeScript checking
+npm test             # Run tests
+```
+
+## Project Structure
 
 ```
 src/
-├── app/                 # Next.js App Router pages and layouts
-├── components/          # React components and UI elements
-├── services/            # Business logic and API services  
-├── integrations/        # External API clients (Ahrefs, Anthropic)
-├── models/              # TypeScript data models and validation
-├── lib/                 # Utilities, database, and caching
-├── workers/             # Background job processors
-└── utils/               # Helper functions and utilities
-
-supabase/
-├── migrations/          # Database schema migrations
-└── config.toml         # Supabase configuration
-
-tests/
-├── unit/               # Unit tests for services and utilities
-├── integration/        # Integration tests for workflows
-├── e2e/                # End-to-end tests with Playwright
-└── performance/        # Load and performance tests
+├── app/                 # Next.js App Router
+│   ├── api/            # API routes
+│   │   ├── expansion/  # Dream 100 & Universe APIs
+│   │   ├── clustering/ # Semantic clustering API
+│   │   └── health/     # Health check
+│   └── page.tsx        # Main UI
+├── services/           # Business logic
+│   ├── expansion.ts    # Dream 100 generation
+│   ├── universe.ts     # Universe expansion
+│   └── clustering.ts   # Semantic clustering
+├── integrations/       # External API clients
+│   ├── anthropic.ts    # Claude AI
+│   ├── dataforseo.ts   # Keyword data (recommended)
+│   ├── ahrefs.ts       # Keyword data (alternative)
+│   └── scraper.ts      # Web scraping
+└── models/             # TypeScript types
 ```
 
-## 🚀 Deployment
+## License
 
-### **Vercel (Recommended)**
+MIT License - see [LICENSE](LICENSE) for details.
 
-1. **Connect Repository**: Import from GitHub in Vercel dashboard
-2. **Environment Variables**: Add all required env vars from `.env.local.example`
-3. **Deploy**: Automatic deployment on push to main branch
+## Contributing
 
-```bash
-# Manual deployment
-npm run deploy:production
-```
-
-### **Environment Variables**
-
-Key environment variables needed:
-
-```env
-# Required APIs
-AHREFS_API_KEY=your-ahrefs-api-key
-ANTHROPIC_API_KEY=your-anthropic-api-key
-
-# Database
-NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-
-# Monitoring
-SENTRY_DSN=your-sentry-dsn
-
-# Optional: Redis for caching
-REDIS_URL=redis://localhost:6379
-```
-
-## 📚 Documentation
-
-- **[Technical Architecture](docs/TECHNICAL_ARCHITECTURE.md)** - Detailed system design
-- **[API Documentation](docs/API_REFERENCE.md)** - Complete API reference
-- **[Deployment Guide](docs/VERCEL_DEPLOYMENT.md)** - Production deployment
-- **[Database Schema](docs/README-database.md)** - Supabase schema details
-- **[Testing Guide](tests/README.md)** - Testing strategy and setup
-
-## 🤝 Contributing
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
-### **Development Setup**
+Contributions welcome! Please read our contributing guidelines before submitting PRs.
 
 1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/amazing-feature`
-3. Install dependencies: `npm install`
-4. Set up environment: `cp .env.local.example .env.local`
-5. Make your changes and add tests
-6. Run tests: `npm run test:ci`
-7. Commit: `git commit -m 'Add amazing feature'`
-8. Push: `git push origin feature/amazing-feature`
-9. Open a Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- **Anthropic** for Claude AI capabilities
-- **Ahrefs** for comprehensive SEO data
-- **Supabase** for database and authentication
-- **Vercel** for deployment platform
-- **Open Source Community** for amazing tools and libraries
-
----
-
-<div align="center">
-
-**[🌟 Star this repo](https://github.com/ejwhite7/bw-seo-research)** if you find it useful!
-
-[Website](https://bw-seo-research.vercel.app) • [Documentation](docs/) • [Issues](https://github.com/ejwhite7/bw-seo-research/issues) • [Discussions](https://github.com/ejwhite7/bw-seo-research/discussions)
-
-</div>
+2. Create a feature branch
+3. Make your changes
+4. Run tests: `npm test`
+5. Submit a pull request

@@ -43,7 +43,7 @@ import type {
 } from '../models';
 import type { ProcessingStage } from '../models/pipeline';
 import { AnthropicClient } from '../integrations/anthropic';
-import { AhrefsClient } from '../integrations/ahrefs';
+import { KeywordProvider, getKeywordProvider, UnifiedKeywordData } from '../integrations/keyword-provider';
 import { ErrorHandler, RetryHandler } from '../utils/error-handler';
 import { normalizeKeyword, validateKeywordQuality } from '../utils/ingestion-helpers';
 import type {
@@ -52,11 +52,12 @@ import type {
   AnthropicIntentClassification,
   AnthropicIntentResult
 } from '../types/anthropic';
-import type {
-  AhrefsKeywordRequest,
-  AhrefsKeywordData,
-  AhrefsKeywordIdeasRequest
-} from '../types/ahrefs';
+
+// Unified keyword metrics type
+type KeywordMetrics = UnifiedKeywordData & {
+  keyword_difficulty?: number;
+  traffic_potential?: number;
+};
 
 /**
  * Universe expansion request configuration
@@ -93,11 +94,11 @@ export interface UniverseKeywordCandidate {
   readonly keyword: string;
   readonly stage: KeywordStage;
   readonly parentKeyword?: string; // For tier2/3 tracking
-  readonly volume: number;
-  readonly difficulty: number;
-  readonly cpc: number;
+  readonly volume: number;         // 0 = unavailable (not fake)
+  readonly difficulty: number;     // 0 = unavailable (not fake)
+  readonly cpc: number;            // 0 = unavailable (not fake)
   readonly intent: KeywordIntent | null;
-  readonly relevanceScore: number;
+  readonly relevanceScore: number; // Computed similarity score (not from API)
   readonly qualityScore: number;
   readonly blendedScore: number;
   readonly quickWin: boolean;
@@ -106,6 +107,7 @@ export interface UniverseKeywordCandidate {
   readonly serpFeatures?: string[];
   readonly competitorUrls?: string[];
   readonly semanticVariations?: string[];
+  readonly metricsAvailable?: boolean; // Whether volume/difficulty/cpc are from real API data
 }
 
 /**
@@ -260,20 +262,22 @@ export type UniverseProgressCallback = (progress: {
  */
 export class UniverseExpansionService {
   private readonly anthropicClient: AnthropicClient;
-  private readonly ahrefsClient: AhrefsClient;
+  private readonly keywordProvider: KeywordProvider;
   private readonly maxUniverseSize = 10000;
   private readonly maxTier2PerDream = 10;
   private readonly maxTier3PerTier2 = 10;
   private readonly minQualityThreshold = 0.4;
-  private readonly maxProcessingTime = 30 * 60 * 1000; // 30 minutes max
+  private readonly maxProcessingTime = 60 * 60 * 1000; // 60 minutes max
 
   constructor(
     anthropicApiKey: string,
-    ahrefsApiKey: string,
+    _ahrefsApiKey?: string, // Kept for backwards compatibility, but now uses KeywordProvider
     redis?: any
   ) {
     this.anthropicClient = AnthropicClient.getInstance(anthropicApiKey, redis);
-    this.ahrefsClient = AhrefsClient.getInstance(ahrefsApiKey, redis);
+    // Use unified KeywordProvider which supports DataForSEO, Ahrefs, or mock data
+    this.keywordProvider = getKeywordProvider();
+    console.log(`✓ Universe expansion using keyword provider: ${this.keywordProvider.getActiveProvider()}`);
   }
 
   /**
@@ -651,7 +655,19 @@ export class UniverseExpansionService {
     progressCallback?: UniverseProgressCallback
   ): Promise<UniverseKeywordCandidate[]> {
     const tier2Candidates: UniverseKeywordCandidate[] = [];
-    const strategies = this.getTier2ExpansionStrategies(options);
+    
+    // Check provider status for SERP-based strategies
+    const activeProvider = this.keywordProvider.getActiveProvider();
+    const providerAvailable = activeProvider !== 'mock' && options.enableSerpAnalysis;
+    if (!providerAvailable && options.enableSerpAnalysis) {
+      console.log(`ℹ️ Keyword provider ${activeProvider} - SERP-based strategies limited`);
+    }
+    
+    const strategies = this.getTier2ExpansionStrategies({
+      ...options,
+      enableSerpAnalysis: providerAvailable,
+      enableCompetitorMining: providerAvailable && options.enableCompetitorMining
+    });
     
     let processedCount = 0;
     
@@ -814,7 +830,7 @@ export class UniverseExpansionService {
   }
 
   /**
-   * Enrich keywords with Ahrefs metrics data
+   * Enrich keywords with metrics data using unified KeywordProvider
    */
   private async enrichKeywords(
     candidates: UniverseKeywordCandidate[],
@@ -824,97 +840,105 @@ export class UniverseExpansionService {
   ): Promise<UniverseKeywordCandidate[]> {
     if (candidates.length === 0) return [];
     
-    const batchSize = 100;
-    const batches = this.chunkArray(candidates, batchSize);
+    const provider = this.keywordProvider.getActiveProvider();
+    console.log(`📊 Enriching ${candidates.length} ${stage} keywords using ${provider}`);
+    
     const enrichedResults: UniverseKeywordCandidate[] = [];
-    let processedCount = 0;
 
-    for (let i = 0; i < batches.length; i++) {
-      const batch = batches[i];
+    try {
+      const keywords = candidates.map(c => c.keyword);
+      const metricsData = await this.keywordProvider.getBulkKeywordMetrics(keywords, {
+        location: market,
+        language: 'en'
+      });
+
+      // Create a lookup map for faster matching (case-insensitive)
+      const metricsMap = new Map(metricsData.map(m => [m.keyword.toLowerCase(), m]));
       
-      try {
-        const keywords = batch.map(c => c.keyword);
-        const response = await this.ahrefsClient.getKeywordMetrics({
-          keywords,
-          country: market,
-          mode: 'exact',
-          include_serp: true
-        });
+      // Diagnostic: count matches vs misses
+      let matchCount = 0;
+      let missCount = 0;
 
-        if (response.success && response.data) {
-          for (const candidate of batch) {
-            const metrics = response.data.find(d => d.keyword === candidate.keyword);
-            
-            if (metrics) {
-              // Apply stage-specific scoring
-              const blendedScore = this.calculateTierBlendedScore(
-                metrics.search_volume,
-                metrics.keyword_difficulty,
-                candidate.intent,
-                candidate.relevanceScore,
-                stage
-              );
-              
-              const quickWin = this.isQuickWin(
-                metrics.keyword_difficulty,
-                metrics.search_volume,
-                blendedScore,
-                stage
-              );
-              
-              enrichedResults.push({
-                ...candidate,
-                volume: metrics.search_volume,
-                difficulty: metrics.keyword_difficulty,
-                cpc: metrics.cpc,
-                blendedScore,
-                quickWin,
-                serpFeatures: this.extractSerpFeatures(metrics)
-              });
-            } else {
-              // Keep candidate with estimated metrics if API data unavailable
-              enrichedResults.push({
-                ...candidate,
-                volume: this.estimateVolume(candidate.keyword, stage),
-                difficulty: this.estimateDifficulty(candidate.keyword, stage),
-                cpc: 0
-              });
-            }
-          }
-        }
-
-        processedCount += batch.length;
+      for (const candidate of candidates) {
+        const metrics = metricsMap.get(candidate.keyword.toLowerCase());
         
-        // Update progress based on stage
-        const basePercent = stage === 'tier2' ? 35 : 75;
-        const rangePercent = stage === 'tier2' ? 20 : 15;
+        // Only use real data from DataForSEO or Ahrefs, not mock or unavailable
+        const hasRealData = metrics && (metrics.source === 'dataforseo' || metrics.source === 'ahrefs');
         
-        progressCallback?.({
-          stage: stage === 'tier2' ? 'tier2_enrichment' : 'tier3_enrichment',
-          currentStep: `Enriched batch ${i + 1}/${batches.length}`,
-          progressPercent: basePercent + (rangePercent * (i + 1) / batches.length),
-          keywordsProcessed: processedCount,
-          estimatedTimeRemaining: (stage === 'tier2' ? 15 : 10) * 60 * (1 - (i + 1) / batches.length),
-          currentCost: 0, // Will be calculated later
-          currentTier: stage
-        });
-
-        // Rate limiting delay
-        if (i < batches.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-
-      } catch (error) {
-        console.warn(`Enrichment batch ${i + 1} failed:`, (error as Error).message);
-        // Continue with estimated metrics for failed batch
-        for (const candidate of batch) {
+        if (hasRealData) {
+          matchCount++;
+          const volume = metrics.volume ?? 0;
+          const difficulty = metrics.difficulty ?? 50;
+          
+          // Apply stage-specific scoring
+          const blendedScore = this.calculateTierBlendedScore(
+            volume,
+            difficulty,
+            candidate.intent,
+            candidate.relevanceScore,
+            stage
+          );
+          
+          const quickWin = this.isQuickWin(
+            difficulty,
+            volume,
+            blendedScore,
+            stage
+          );
+          
           enrichedResults.push({
             ...candidate,
-            volume: this.estimateVolume(candidate.keyword, stage),
-            difficulty: this.estimateDifficulty(candidate.keyword, stage),
-            cpc: 0
+            volume,
+            difficulty,
+            cpc: metrics.cpc ?? 0,
+            blendedScore,
+            quickWin,
+            serpFeatures: [],
+            metricsAvailable: true // Real data from API
           });
+        } else {
+          missCount++;
+          // Keep candidate with estimated metrics if API data unavailable
+          // No fake data - mark metrics as unavailable
+          enrichedResults.push({
+            ...candidate,
+            volume: 0,      // Indicates unavailable, not fake
+            difficulty: 0,  // Indicates unavailable, not fake  
+            cpc: 0,
+            metricsAvailable: false
+          } as UniverseKeywordCandidate);
         }
+      }
+
+      console.log(`📊 Metrics lookup: ${matchCount} matches, ${missCount} misses out of ${candidates.length} candidates`);
+      console.log(`✅ Enriched ${enrichedResults.length} ${stage} keywords via ${provider}`);
+
+      // Update progress based on stage
+      const basePercent = stage === 'tier2' ? 35 : 75;
+      const rangePercent = stage === 'tier2' ? 20 : 15;
+      
+      progressCallback?.({
+        stage: stage === 'tier2' ? 'tier2_enrichment' : 'tier3_enrichment',
+        currentStep: `Enriched ${enrichedResults.length} keywords via ${provider}`,
+        progressPercent: basePercent + rangePercent,
+        keywordsProcessed: enrichedResults.length,
+        estimatedTimeRemaining: (stage === 'tier2' ? 10 : 5) * 60,
+        currentCost: provider === 'dataforseo' ? enrichedResults.length * 0.01 : 0,
+        currentTier: stage
+      });
+
+    } catch (error) {
+      console.warn(`Enrichment failed:`, (error as Error).message);
+      // Continue with estimated metrics for all candidates
+      for (const candidate of candidates) {
+        // No fake data - mark metrics as unavailable
+        enrichedResults.push({
+          ...candidate,
+          volume: 0,      // Indicates unavailable, not fake
+          difficulty: 0,  // Indicates unavailable, not fake
+          cpc: 0,
+          metricsAvailable: false
+        } as UniverseKeywordCandidate);
       }
     }
 
@@ -939,18 +963,34 @@ export class UniverseExpansionService {
   ): typeof keywordsByTier {
     const { qualityThreshold, deduplicateAcrossTiers, preserveParentChildRelations } = options;
     
-    // Apply quality filtering
-    const filteredTier2 = keywordsByTier.tier2.filter(k => 
-      k.qualityScore >= qualityThreshold &&
-      k.volume >= 10 && // Minimum volume threshold
-      k.difficulty <= 95 // Maximum difficulty threshold
-    );
+    console.log(`🔍 Quality control input: tier2=${keywordsByTier.tier2.length}, tier3=${keywordsByTier.tier3.length}`);
     
-    const filteredTier3 = keywordsByTier.tier3.filter(k => 
-      k.qualityScore >= (qualityThreshold * 0.8) && // Slightly lower threshold for tier-3
-      k.volume >= 5 && // Lower volume threshold for long-tail
-      k.difficulty <= 90 // Slightly lower difficulty threshold
-    );
+    // Apply quality filtering - only filter by volume/difficulty if metrics are available
+    const filteredTier2 = keywordsByTier.tier2.filter(k => {
+      const hasMetrics = k.metricsAvailable !== false && k.volume > 0;
+      // If no metrics available, only filter by qualityScore
+      if (!hasMetrics) {
+        return k.qualityScore >= qualityThreshold;
+      }
+      // If metrics available, apply full filtering
+      return k.qualityScore >= qualityThreshold &&
+        k.volume >= 10 &&
+        k.difficulty <= 95;
+    });
+    
+    const filteredTier3 = keywordsByTier.tier3.filter(k => {
+      const hasMetrics = k.metricsAvailable !== false && k.volume > 0;
+      // If no metrics available, only filter by qualityScore  
+      if (!hasMetrics) {
+        return k.qualityScore >= (qualityThreshold * 0.8);
+      }
+      // If metrics available, apply full filtering
+      return k.qualityScore >= (qualityThreshold * 0.8) &&
+        k.volume >= 5 &&
+        k.difficulty <= 90;
+    });
+    
+    console.log(`🔍 After quality filtering: tier2=${filteredTier2.length}, tier3=${filteredTier3.length}`);
     
     // Deduplicate across tiers if enabled
     let finalTier2 = filteredTier2;
@@ -958,30 +998,35 @@ export class UniverseExpansionService {
     
     if (deduplicateAcrossTiers) {
       const allKeywords = new Set([
-        ...keywordsByTier.dream100.map(k => k.keyword),
-        ...filteredTier2.map(k => k.keyword)
+        ...keywordsByTier.dream100.map(k => k.keyword.toLowerCase()),
+        ...filteredTier2.map(k => k.keyword.toLowerCase())
       ]);
       
-      finalTier3 = filteredTier3.filter(k => !allKeywords.has(k.keyword));
-      allKeywords.clear();
+      finalTier3 = filteredTier3.filter(k => !allKeywords.has(k.keyword.toLowerCase()));
       
       // Also deduplicate tier2 against dream100
-      const dream100Keywords = new Set(keywordsByTier.dream100.map(k => k.keyword));
-      finalTier2 = filteredTier2.filter(k => !dream100Keywords.has(k.keyword));
+      const dream100Keywords = new Set(keywordsByTier.dream100.map(k => k.keyword.toLowerCase()));
+      finalTier2 = filteredTier2.filter(k => !dream100Keywords.has(k.keyword.toLowerCase()));
+      
+      console.log(`🔍 After deduplication: tier2=${finalTier2.length}, tier3=${finalTier3.length}`);
     }
     
     // Preserve parent-child relationships if enabled
     if (preserveParentChildRelations) {
       const validParents = new Set([
-        ...keywordsByTier.dream100.map(k => k.keyword),
-        ...finalTier2.map(k => k.keyword)
+        ...keywordsByTier.dream100.map(k => k.keyword.toLowerCase()),
+        ...finalTier2.map(k => k.keyword.toLowerCase())
       ]);
       
+      const beforeCount = finalTier3.length;
       // Only keep tier-3 keywords whose parents exist
       finalTier3 = finalTier3.filter(k => 
-        k.parentKeyword && validParents.has(k.parentKeyword)
+        k.parentKeyword && validParents.has(k.parentKeyword.toLowerCase())
       );
+      console.log(`🔍 After parent-child filter: tier3 ${beforeCount} → ${finalTier3.length}`);
     }
+    
+    console.log(`🔍 Quality control output: tier2=${finalTier2.length}, tier3=${finalTier3.length}`);
     
     return {
       dream100: keywordsByTier.dream100,
@@ -1193,7 +1238,7 @@ export class UniverseExpansionService {
   }
 
   /**
-   * Expand using SERP overlap analysis
+   * Expand using keyword suggestions/related keywords
    */
   private async expandWithSerpAnalysis(
     seedKeyword: string,
@@ -1202,40 +1247,48 @@ export class UniverseExpansionService {
     options: any
   ): Promise<UniverseKeywordCandidate[]> {
     try {
-      // This would integrate with Ahrefs SERP data to find keywords
-      // that appear in similar SERP results
-      const serpRequest: AhrefsKeywordIdeasRequest = {
-        target: seedKeyword,
-        country: options.market,
-        mode: 'phrase_match', // Use supported mode
-        limit: options.maxResults
-      };
+      // Use unified KeywordProvider for keyword suggestions
+      const suggestions = await this.keywordProvider.getKeywordSuggestions(seedKeyword, {
+        location: options.market,
+        language: 'en',
+        limit: options.maxResults || 50
+      });
 
-      const response = await this.ahrefsClient.getKeywordIdeas(serpRequest);
-      
-      if (!response.success || !response.data) {
+      if (!suggestions || suggestions.length === 0) {
         return [];
       }
 
-      return response.data.keywords
-        .filter(item => item.keyword !== seedKeyword)
-        .map(item => ({
-          keyword: normalizeKeyword(item.keyword),
+      // Filter and map keywords (suggestions are strings)
+      const filteredKeywords = suggestions.filter(kw => kw !== seedKeyword);
+      
+      // Get metrics for the suggested keywords
+      const metricsData = await this.keywordProvider.getBulkKeywordMetrics(filteredKeywords, {
+        location: options.market,
+        language: 'en'
+      });
+      const metricsMap = new Map(metricsData.map(m => [m.keyword, m]));
+
+      return filteredKeywords.map(keyword => {
+        const metrics = metricsMap.get(keyword);
+        return {
+          keyword: normalizeKeyword(keyword),
           stage: tier,
-          volume: item.search_volume,
-          difficulty: item.keyword_difficulty,
-          cpc: item.cpc,
-          intent: this.inferIntentFromKeyword(item.keyword),
-          relevanceScore: this.calculateSemanticRelevance(seedKeyword, item.keyword),
-          qualityScore: this.calculateQualityFromMetrics(item.search_volume, item.keyword_difficulty),
+          volume: metrics?.volume ?? 0,
+          difficulty: metrics?.difficulty ?? 50,
+          cpc: metrics?.cpc ?? 0,
+          intent: this.inferIntentFromKeyword(keyword),
+          relevanceScore: this.calculateSemanticRelevance(seedKeyword, keyword),
+          qualityScore: this.calculateQualityFromMetrics(metrics?.volume ?? 0, metrics?.difficulty ?? 50),
           blendedScore: 0,
           quickWin: false,
           expansionSource: 'serp_overlap',
-          confidence: 0.8
-        }));
+          confidence: metrics?.confidence || 0.8
+        };
+      });
 
     } catch (error) {
-      console.warn(`SERP analysis failed for "${seedKeyword}":`, error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.warn(`Keyword expansion failed for "${seedKeyword}":`, errorMessage);
       return [];
     }
   }
@@ -1598,19 +1651,10 @@ export class UniverseExpansionService {
     return (volumeScore * 0.6 + difficultyScore * 0.4);
   }
 
-  private estimateVolume(keyword: string, tier: KeywordStage): number {
-    const baseVolume = tier === 'tier2' ? 500 : 100;
-    const lengthPenalty = Math.max(0.1, 1 - (keyword.split(' ').length - 2) * 0.2);
-    return Math.floor(baseVolume * lengthPenalty);
-  }
+  // Removed estimateVolume and estimateDifficulty - we don't fake metrics
+  // When real API data is unavailable, volume/difficulty = 0 with metricsAvailable = false
 
-  private estimateDifficulty(keyword: string, tier: KeywordStage): number {
-    const baseDifficulty = tier === 'tier2' ? 40 : 25;
-    const lengthBonus = Math.min(0.3, (keyword.split(' ').length - 2) * 0.1);
-    return Math.max(10, Math.floor(baseDifficulty * (1 - lengthBonus)));
-  }
-
-  private extractSerpFeatures(metrics: AhrefsKeywordData): string[] {
+  private extractSerpFeatures(metrics: KeywordMetrics): string[] {
     // Extract SERP features from Ahrefs data
     const features: string[] = [];
     

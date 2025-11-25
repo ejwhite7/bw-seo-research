@@ -2,6 +2,7 @@ import { HealthStatus } from './types';
 import { MonitoringConfig } from './config';
 import { AlertManager } from './alert-manager';
 import * as Sentry from '@sentry/nextjs';
+import { DEFAULT_ANTHROPIC_MODEL } from '../../integrations/anthropic';
 
 interface ServiceHealth {
   name: string;
@@ -157,7 +158,7 @@ export class HealthMonitor {
             responseTime,
             details: {
               endpoint: 'https://api.anthropic.com',
-              model: 'claude-3-haiku-20240307',
+              model: DEFAULT_ANTHROPIC_MODEL,
               quotaStatus: 'healthy'
             }
           };

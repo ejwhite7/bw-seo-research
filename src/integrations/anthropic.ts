@@ -20,6 +20,10 @@ import { ErrorHandler, RetryHandler } from '../utils/error-handler';
 import { RateLimiterFactory, CircuitBreakerFactory } from '../utils/rate-limiter';
 import * as Sentry from '@sentry/nextjs';
 
+// Default Anthropic model - can be overridden via ANTHROPIC_MODEL env var
+// Available models: claude-3-5-sonnet-20241022, claude-3-opus-20240229, claude-3-haiku-20240307
+export const DEFAULT_ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022';
+
 export class AnthropicClient extends BaseApiClient {
   private static instance: AnthropicClient | null = null;
   private anthropic: Anthropic;
@@ -30,7 +34,7 @@ export class AnthropicClient extends BaseApiClient {
     const config: ApiClientConfig = {
       baseUrl: 'https://api.anthropic.com',
       apiKey,
-      timeout: 60000, // 60 seconds for LLM requests
+      timeout: 600000, // 10 minutes for LLM requests (Dream 100 generation can take a while)
       retries: 2, // Fewer retries for expensive LLM calls
       rateLimiter: {
         capacity: 50,
@@ -107,8 +111,8 @@ export class AnthropicClient extends BaseApiClient {
       throw new Error('At least one seed keyword is required');
     }
     
-    if (target_count > 200) {
-      throw new Error('Maximum 200 keywords per expansion to maintain quality');
+    if (target_count > 150) {
+      throw new Error('Maximum 150 keywords per expansion to maintain quality and avoid token limits');
     }
     
     const cacheKey = `expansion:${target_count}:${intent_focus}:${seed_keywords.sort().join(',')}`;
@@ -394,7 +398,7 @@ Format as JSON:
     try {
       const response = await this.circuitBreaker.execute(async () => {
         return await this.anthropic.messages.create({
-          model: 'claude-3-5-sonnet-20241022',
+          model: DEFAULT_ANTHROPIC_MODEL,
           system: systemPrompt,
           messages: [
             {
@@ -418,8 +422,19 @@ Format as JSON:
           // Try to parse as JSON first
           parsedData = JSON.parse(content.text) as T;
         } catch (parseError) {
-          // If not JSON, return as text
-          parsedData = content.text as any as T;
+          // If direct JSON parse fails, try to extract JSON from the text
+          try {
+            const jsonMatch = content.text.match(/\[[\s\S]*\]/);
+            if (jsonMatch) {
+              parsedData = JSON.parse(jsonMatch[0]) as T;
+            } else {
+              // If no JSON array found, return as text
+              parsedData = content.text as any as T;
+            }
+          } catch (extractError) {
+            // If JSON extraction also fails, return as text
+            parsedData = content.text as any as T;
+          }
         }
       } else {
         throw new Error('Unexpected response content type');
@@ -742,7 +757,7 @@ Format as JSON:
 
   async processPrompt(
     prompt: string,
-    model: string = 'claude-3-5-sonnet-20241022',
+    model: string = DEFAULT_ANTHROPIC_MODEL,
     temperature: number = 0.1,
     maxTokens: number = 1000
   ): Promise<AnthropicResponse<string>> {

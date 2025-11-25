@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   // Move serverComponentsExternalPackages to top level as serverExternalPackages
-  serverExternalPackages: ['@anthropic-ai/sdk'],
+  serverExternalPackages: ['@anthropic-ai/sdk', '@google/generative-ai'],
 
   // Disable ESLint during build for deployment
   eslint: {

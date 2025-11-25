@@ -399,7 +399,7 @@ export const IntegrationSettingsSchema = z.object({
     cacheExpiryDays: z.number().int().min(1).max(90).default(30)
   }),
   anthropic: z.object({
-    model: z.string().min(1).max(50).default('claude-3-haiku-20240307'),
+    model: z.string().min(1).max(50).default(process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022'),
     maxTokens: z.number().int().min(100).max(100000).default(4000),
     temperature: z.number().min(0).max(2).default(0.2),
     costPerToken: z.number().min(0.0000001).default(0.000001),
@@ -616,7 +616,7 @@ export const getDefaultUserPreferences = (): UserPreferences => ({
       cacheExpiryDays: 30
     },
     anthropic: {
-      model: 'claude-3-haiku-20240307',
+      model: process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022',
       maxTokens: 4000,
       temperature: 0.2,
       costPerToken: 0.000001,

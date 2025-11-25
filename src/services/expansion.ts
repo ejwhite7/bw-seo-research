@@ -14,7 +14,7 @@
  * - Smart caching and deduplication
  * 
  * Processing Pipeline:
- * 1. LLM Seed Expansion - Generate 200-300 candidate keywords
+ * 1. LLM Seed Expansion - Generate up to 200 candidate keywords
  * 2. Ahrefs Metrics Enrichment - Volume, difficulty, CPC data
  * 3. Intent Classification - Identify commercial vs informational intent
  * 4. Relevance Scoring - Semantic similarity to seed terms
@@ -42,7 +42,8 @@ import type {
 } from '../models';
 import type { ProcessingStage } from '../models/pipeline';
 import { AnthropicClient } from '../integrations/anthropic';
-import { AhrefsClient } from '../integrations/ahrefs';
+import { KeywordProvider, getKeywordProvider, UnifiedKeywordData } from '../integrations/keyword-provider';
+import { getLLMProvider, ILLMProvider } from '../lib/llm-provider-factory';
 import { ErrorHandler, RetryHandler } from '../utils/error-handler';
 import { normalizeKeyword, validateKeywordQuality, estimateKeywordDifficulty } from '../utils/ingestion-helpers';
 import type {
@@ -51,10 +52,15 @@ import type {
   AnthropicIntentClassification,
   AnthropicIntentResult
 } from '../types/anthropic';
-import type {
-  AhrefsKeywordRequest,
-  AhrefsKeywordData
-} from '../types/ahrefs';
+
+// Unified keyword metrics type (compatible with old KeywordMetrics)
+type KeywordMetrics = UnifiedKeywordData & {
+  keyword_difficulty?: number;
+  traffic_potential?: number;
+  return_rate?: number;
+  clicks?: number;
+  global_volume?: number;
+};
 
 /**
  * Dream 100 expansion request configuration
@@ -68,7 +74,7 @@ export interface Dream100ExpansionRequest {
   readonly intentFocus?: 'commercial' | 'informational' | 'transactional' | 'mixed';
   readonly difficultyPreference?: 'easy' | 'medium' | 'hard' | 'mixed';
   readonly budgetLimit?: number;
-  readonly qualityThreshold?: number; // 0-1, default 0.7
+  readonly qualityThreshold?: number; // 0-1, default 0.3
   readonly includeCompetitorAnalysis?: boolean;
 }
 
@@ -199,19 +205,40 @@ export type ExpansionProgressCallback = (progress: {
  * Main Dream 100 Expansion Service
  */
 export class Dream100ExpansionService {
-  private readonly anthropicClient: AnthropicClient;
-  private readonly ahrefsClient: AhrefsClient;
-  private readonly maxCandidates = 300; // Generate up to 300 candidates before filtering
+  private readonly llmProvider: ILLMProvider;
+  private readonly keywordProvider: KeywordProvider;
+  private readonly maxCandidates = 200; // Generate up to 200 candidates before filtering
   private readonly minCommercialScore = 0.5; // Minimum commercial relevance
   private readonly maxProcessingTime = 20 * 60 * 1000; // 20 minutes max
 
   constructor(
-    anthropicApiKey: string,
-    ahrefsApiKey: string,
-    redis?: any
+    llmApiKey?: string, // Optional: kept for backwards compatibility
+    _ahrefsApiKey?: string, // Kept for backwards compatibility, but now uses KeywordProvider
+    _redis?: any
   ) {
-    this.anthropicClient = AnthropicClient.getInstance(anthropicApiKey, redis);
-    this.ahrefsClient = AhrefsClient.getInstance(ahrefsApiKey, redis);
+    // Use LLM provider factory to get the configured provider
+    // Factory reads from env vars: LLM_PROVIDER, ANTHROPIC_API_KEY, etc.
+    // If llmApiKey is provided but env vars are missing, we temporarily set it for backwards compatibility
+    if (llmApiKey && !process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY && !process.env.GEMINI_API_KEY) {
+      // Backwards compatibility: if an API key is passed but no env vars are set,
+      // assume Anthropic and set the env var temporarily for this instance
+      process.env.ANTHROPIC_API_KEY = llmApiKey;
+      if (!process.env.LLM_PROVIDER) {
+        process.env.LLM_PROVIDER = 'anthropic';
+      }
+      console.warn('⚠️ Using legacy API key parameter. Consider migrating to environment variables (LLM_PROVIDER, ANTHROPIC_API_KEY, etc.)');
+    }
+    
+    try {
+      this.llmProvider = getLLMProvider(_redis);
+      console.log(`✓ Dream100 using LLM provider: ${this.llmProvider.getProviderType()} (${this.llmProvider.getModel()})`);
+    } catch (error) {
+      throw new Error(`Failed to initialize LLM provider: ${error instanceof Error ? error.message : String(error)}. Please ensure LLM_PROVIDER and corresponding API key environment variables are configured.`);
+    }
+    
+    // Use unified KeywordProvider which supports DataForSEO, Ahrefs, or mock data
+    this.keywordProvider = getKeywordProvider();
+    console.log(`✓ Dream100 using keyword provider: ${this.keywordProvider.getActiveProvider()}`);
   }
 
   /**
@@ -222,6 +249,8 @@ export class Dream100ExpansionService {
     progressCallback?: ExpansionProgressCallback
   ): Promise<Dream100ExpansionResult> {
     const startTime = Date.now();
+    console.log(`🎯 Dream100 expandToDream100 called with request:`, JSON.stringify(request, null, 2));
+
     const {
       runId,
       seedKeywords,
@@ -231,9 +260,11 @@ export class Dream100ExpansionService {
       intentFocus = 'mixed',
       difficultyPreference = 'mixed',
       budgetLimit,
-      qualityThreshold = 0.7,
+      qualityThreshold = 0.3, // Lowered to allow keywords through when Ahrefs data is missing
       includeCompetitorAnalysis = false
     } = request;
+
+    console.log(`🔍 After destructuring: targetCount=${targetCount}, seedKeywords=${JSON.stringify(seedKeywords)}`);
 
     if (seedKeywords.length === 0 || seedKeywords.length > 5) {
       throw new Error('Seed keywords must be between 1 and 5 terms');
@@ -291,10 +322,12 @@ export class Dream100ExpansionService {
       });
 
       const stageStart = Date.now();
+      // Generate slightly more than target to allow for filtering
+      const generationTarget = Math.min(targetCount * 1.2, 120); // 20% buffer, max 120
       const expansionCandidates = await this.performLLMExpansion(
         seedKeywords,
         {
-          targetCount: this.maxCandidates,
+          targetCount: Math.ceil(generationTarget),
           industry,
           intentFocus,
           market
@@ -318,7 +351,7 @@ export class Dream100ExpansionService {
       });
 
       const enrichmentStart = Date.now();
-      const enrichedCandidates = await this.performAhrefsEnrichment(
+      const enrichedCandidates = await this.performKeywordEnrichment(
         expansionCandidates,
         market,
         progressCallback
@@ -509,21 +542,105 @@ export class Dream100ExpansionService {
     const { targetCount, industry, intentFocus, market } = options;
     
     try {
-      const expansionRequest: AnthropicKeywordExpansion = {
+      // Use the target count passed from caller (already optimized in expandToDream100)
+      const actualTargetCount = targetCount;
+      console.log(`🔧 Expansion request: targetCount=${targetCount}, actualTargetCount=${actualTargetCount}, seedKeywords=${JSON.stringify(seedKeywords)}`);
+
+      const expansionRequest = {
         seed_keywords: seedKeywords,
-        target_count: targetCount,
+        target_count: actualTargetCount,
         industry: industry || 'general business',
         intent_focus: intentFocus as any || 'mixed'
       };
 
-      const response = await this.anthropicClient.expandToDream100(expansionRequest);
-      
-      if (!response.data?.keywords) {
+      const response = await this.llmProvider.expandKeywords(expansionRequest);
+      console.log(`📥 Expansion response: hasData=${!!response.data}, keywordsCount=${response.data?.keywords?.length || 0}`);
+      console.log(`📥 Expansion response.data type: ${typeof response.data}, isArray: ${Array.isArray(response.data)}`);
+      console.log(`📥 Expansion response.data structure:`, JSON.stringify(response.data, null, 2).substring(0, 1000));
+
+      // Unified interface returns response.data with a keywords array
+      let keywordsArray;
+      if (response.data && response.data.keywords && Array.isArray(response.data.keywords)) {
+        console.log(`✅ Found keywords array in response.data.keywords: ${response.data.keywords.length} items`);
+        keywordsArray = response.data.keywords;
+      } else if (Array.isArray(response.data)) {
+        // Fallback: if data is directly an array
+        console.log(`✅ Found direct array in response.data: ${response.data.length} items`);
+        keywordsArray = response.data;
+      } else if (typeof response.data === 'string') {
+        console.log(`⚠️ Response.data is a string, attempting to parse JSON...`);
+        // String format - try to parse JSON from the string, handling incomplete responses
+        try {
+          const responseString = response.data as string;
+
+          // First try to find a complete JSON array
+          let jsonMatch = responseString.match(/\[[\s\S]*?\]/);
+
+          if (jsonMatch) {
+            keywordsArray = JSON.parse(jsonMatch[0]);
+          } else {
+            // Try to find partial JSON and fix it
+            const partialMatch = responseString.match(/\[([\s\S]*)/);
+            if (partialMatch) {
+              // Clean up the partial JSON by finding complete objects
+              const partialJson = partialMatch[1];
+              const completeObjects = [];
+
+              // Split by lines and find complete keyword objects
+              const lines = partialJson.split('\n');
+              let currentObject = '';
+              let braceCount = 0;
+
+              for (const line of lines) {
+                currentObject += line + '\n';
+                // Count braces to find complete objects
+                for (const char of line) {
+                  if (char === '{') braceCount++;
+                  if (char === '}') braceCount--;
+                }
+
+                // If we have a complete object and it looks like a keyword
+                if (braceCount === 0 && currentObject.includes('"keyword"')) {
+                  try {
+                    const obj = JSON.parse(currentObject.trim().replace(/,$/, ''));
+                    if (obj.keyword && obj.intent) {
+                      completeObjects.push(obj);
+                    }
+                  } catch (e) {
+                    // Skip malformed objects
+                  }
+                  currentObject = '';
+                }
+              }
+
+              keywordsArray = completeObjects;
+            } else {
+              throw new Error('No JSON array found in string response');
+            }
+          }
+        } catch (parseError) {
+          console.error('Failed to parse JSON from string response:', parseError);
+          throw new Error('LLM expansion returned invalid data structure');
+        }
+      } else {
+        console.error('❌ Invalid response structure:', JSON.stringify(response, null, 2).substring(0, 2000));
+        console.error('❌ Response.data type:', typeof response.data);
+        console.error('❌ Response.data value:', response.data);
         throw new Error('LLM expansion returned invalid data structure');
       }
 
+      console.log(`📊 Extracted keywordsArray: length=${keywordsArray?.length || 0}, isArray=${Array.isArray(keywordsArray)}`);
+      if (keywordsArray && keywordsArray.length > 0) {
+        console.log(`📊 First keyword item:`, JSON.stringify(keywordsArray[0], null, 2));
+      }
+
+      if (!keywordsArray || !Array.isArray(keywordsArray) || keywordsArray.length === 0) {
+        console.error('❌ No keywords extracted. Response structure:', JSON.stringify(response, null, 2).substring(0, 2000));
+        throw new Error('No keywords returned from LLM expansion');
+      }
+
       // Extract and normalize keywords
-      const candidates = response.data.keywords
+      const candidates = keywordsArray
         .map(item => normalizeKeyword(item.keyword))
         .filter(keyword => {
           const quality = validateKeywordQuality(keyword);
@@ -543,63 +660,78 @@ export class Dream100ExpansionService {
   }
 
   /**
-   * Stage 2: Ahrefs metrics enrichment with batch processing
+   * Stage 2: Keyword metrics enrichment using unified KeywordProvider
+   * Supports DataForSEO, Ahrefs, or mock data automatically
    */
-  private async performAhrefsEnrichment(
+  private async performKeywordEnrichment(
     candidates: string[],
     market: string,
     progressCallback?: ExpansionProgressCallback
-  ): Promise<Array<{ keyword: string; metrics: AhrefsKeywordData }>> {
-    const batchSize = 100;
-    const batches = this.chunkArray(candidates, batchSize);
-    const enrichedResults: Array<{ keyword: string; metrics: AhrefsKeywordData }> = [];
-    let processedCount = 0;
+  ): Promise<Array<{ keyword: string; metrics: KeywordMetrics }>> {
+    const provider = this.keywordProvider.getActiveProvider();
+    console.log(`📊 Enriching ${candidates.length} keywords using ${provider}`);
+    
+    const enrichedResults: Array<{ keyword: string; metrics: KeywordMetrics }> = [];
+    
+    try {
+      // Use bulk metrics - KeywordProvider handles batching internally
+      const metricsData = await this.keywordProvider.getBulkKeywordMetrics(candidates, {
+        location: market,
+        language: 'en'
+      });
 
-    for (let i = 0; i < batches.length; i++) {
-      const batch = batches[i];
-      
-      try {
-        const response = await this.ahrefsClient.getKeywordMetrics({
-          keywords: batch,
-          country: market,
-          mode: 'exact',
-          include_serp: true
-        });
-
-        if (response.success && response.data) {
-          for (const metrics of response.data) {
-            enrichedResults.push({
-              keyword: metrics.keyword,
-              metrics
-            });
+      for (const data of metricsData) {
+        enrichedResults.push({
+          keyword: data.keyword,
+          metrics: {
+            ...data,
+            keyword_difficulty: data.difficulty ?? 50,
+            traffic_potential: data.volume ?? 0,
+            return_rate: 0,
+            clicks: 0,
+            global_volume: data.volume ?? 0
           }
-        }
-
-        processedCount += batch.length;
-        
-        // Update progress
-        progressCallback?.({
-          stage: 'ahrefs_enrichment',
-          currentStep: `Processed batch ${i + 1}/${batches.length}`,
-          progressPercent: 30 + (40 * (i + 1) / batches.length),
-          keywordsProcessed: processedCount,
-          estimatedTimeRemaining: 15 * 60 * (1 - (i + 1) / batches.length),
-          currentCost: 0 // Will be calculated later
         });
-
-        // Rate limiting delay
-        if (i < batches.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-
-      } catch (error) {
-        console.warn(`Ahrefs batch ${i + 1} failed:`, (error as Error).message);
-        // Continue with other batches - we'll handle missing data later
       }
+
+      // Update progress
+      progressCallback?.({
+        stage: 'ahrefs_enrichment', // Keep stage name for compatibility
+        currentStep: `Enriched ${enrichedResults.length} keywords via ${provider}`,
+        progressPercent: 70,
+        keywordsProcessed: enrichedResults.length,
+        estimatedTimeRemaining: 5 * 60,
+        currentCost: provider === 'dataforseo' ? enrichedResults.length * 0.01 : 0
+      });
+
+      console.log(`✅ Enriched ${enrichedResults.length} keywords with ${provider} data`);
+
+    } catch (error) {
+      console.warn(`Keyword enrichment failed:`, (error as Error).message);
     }
 
+    // If enrichment failed, return keywords with null/undefined metrics (not fake data)
     if (enrichedResults.length === 0) {
-      throw new Error('Ahrefs enrichment failed completely - no metrics obtained');
+      console.warn('Keyword enrichment failed - metrics will be unavailable (not faking data)');
+      
+      return candidates.map(keyword => ({
+        keyword,
+        metrics: {
+          keyword,
+          volume: null,      // No fake data - null indicates unavailable
+          difficulty: null,  // No fake data - null indicates unavailable
+          cpc: null,         // No fake data - null indicates unavailable
+          competition: null,
+          trend: null,
+          source: 'unavailable' as const,
+          confidence: 0,
+          keyword_difficulty: undefined,
+          traffic_potential: undefined,
+          return_rate: undefined,
+          clicks: undefined,
+          global_volume: undefined
+        }
+      }));
     }
 
     return enrichedResults;
@@ -609,13 +741,13 @@ export class Dream100ExpansionService {
    * Stage 3: Intent classification using LLM
    */
   private async performIntentClassification(
-    enrichedCandidates: Array<{ keyword: string; metrics: AhrefsKeywordData }>,
+    enrichedCandidates: Array<{ keyword: string; metrics: KeywordMetrics }>,
     context: { industry?: string; market?: string }
-  ): Promise<Array<{ keyword: string; metrics: AhrefsKeywordData; intent: KeywordIntent; confidence: number }>> {
+  ): Promise<Array<{ keyword: string; metrics: KeywordMetrics; intent: KeywordIntent; confidence: number }>> {
     const keywords = enrichedCandidates.map(c => c.keyword);
     
     try {
-      const classificationRequest: AnthropicIntentClassification = {
+      const classificationRequest = {
         keywords,
         context: {
           industry: context.industry || 'general business',
@@ -624,7 +756,7 @@ export class Dream100ExpansionService {
         }
       };
 
-      const response = await this.anthropicClient.classifyIntent(classificationRequest);
+      const response = await this.llmProvider.classifyIntent(classificationRequest);
       
       if (!response.data || !Array.isArray(response.data)) {
         throw new Error('Intent classification returned invalid data structure');
@@ -633,7 +765,7 @@ export class Dream100ExpansionService {
       // Map results back to enriched candidates
       const classifiedCandidates = enrichedCandidates.map(candidate => {
         const intentResult = response.data.find(
-          (result: AnthropicIntentResult) => result.keyword === candidate.keyword
+          (result: any) => result.keyword === candidate.keyword
         );
         
         return {
@@ -661,11 +793,16 @@ export class Dream100ExpansionService {
    * Stage 4: Relevance and commercial scoring
    */
   private async performRelevanceScoring(
-    classifiedCandidates: Array<{ keyword: string; metrics: AhrefsKeywordData; intent: KeywordIntent; confidence: number }>,
+    classifiedCandidates: Array<{ keyword: string; metrics: KeywordMetrics; intent: KeywordIntent; confidence: number }>,
     seedKeywords: string[],
     intentFocus?: string
   ): Promise<KeywordCandidate[]> {
     return classifiedCandidates.map(candidate => {
+      // Handle null/undefined values from metrics
+      const volume = candidate.metrics.volume ?? 0;
+      const difficulty = candidate.metrics.keyword_difficulty ?? candidate.metrics.difficulty ?? 50;
+      const cpc = candidate.metrics.cpc ?? 0;
+      
       const relevanceScore = this.calculateRelevanceScore(
         candidate.keyword,
         seedKeywords
@@ -678,8 +815,8 @@ export class Dream100ExpansionService {
       );
 
       const blendedScore = this.calculateBlendedScore(
-        candidate.metrics.search_volume,
-        candidate.metrics.keyword_difficulty,
+        volume,
+        difficulty,
         candidate.intent,
         relevanceScore,
         commercialScore,
@@ -687,17 +824,17 @@ export class Dream100ExpansionService {
       );
 
       const quickWin = this.isQuickWin(
-        candidate.metrics.keyword_difficulty,
-        candidate.metrics.search_volume,
+        difficulty,
+        volume,
         blendedScore
       );
 
       return {
         keyword: candidate.keyword,
         stage: 'dream100' as KeywordStage,
-        volume: candidate.metrics.search_volume,
-        difficulty: candidate.metrics.keyword_difficulty,
-        cpc: candidate.metrics.cpc,
+        volume,
+        difficulty,
+        cpc,
         intent: candidate.intent,
         relevanceScore,
         commercialScore,
@@ -758,7 +895,8 @@ export class Dream100ExpansionService {
       }
 
       // Volume threshold (must have meaningful search volume)
-      if (candidate.volume < 10) {
+      // Skip this filter if volume is 0 or null (indicates missing Ahrefs data)
+      if (candidate.volume > 0 && candidate.volume < 10) {
         return false;
       }
 
@@ -887,7 +1025,7 @@ export class Dream100ExpansionService {
   private calculateCommercialScore(
     keyword: string,
     intent: KeywordIntent,
-    metrics: AhrefsKeywordData
+    metrics: KeywordMetrics
   ): number {
     let score = 0;
 
@@ -900,11 +1038,17 @@ export class Dream100ExpansionService {
     }
 
     // CPC contribution (30%) - higher CPC indicates commercial value
-    const normalizedCpc = Math.min(metrics.cpc / 10, 1); // Normalize to 0-1
-    score += normalizedCpc * 0.3;
+    // When CPC is 0/null (missing data), use neutral score instead of penalizing
+    const cpc = metrics.cpc ?? 0;
+    if (cpc === 0) {
+      score += 0.15; // Neutral CPC contribution
+    } else {
+      const normalizedCpc = Math.min(cpc / 10, 1); // Normalize to 0-1
+      score += normalizedCpc * 0.3;
+    }
 
     // Competition level (20%) - moderate competition is ideal
-    const difficulty = metrics.keyword_difficulty;
+    const difficulty = metrics.keyword_difficulty ?? metrics.difficulty ?? 50;
     const competitionScore = difficulty > 80 ? 0.1 : 
                            difficulty > 60 ? 0.2 :
                            difficulty > 30 ? 0.2 :
@@ -912,10 +1056,16 @@ export class Dream100ExpansionService {
     score += competitionScore;
 
     // Volume contribution (10%) - ensure meaningful volume
-    const volumeScore = metrics.search_volume > 1000 ? 0.1 :
-                       metrics.search_volume > 100 ? 0.08 :
-                       metrics.search_volume > 10 ? 0.05 : 0;
-    score += volumeScore;
+    // When volume is 0/null (missing data), use neutral score instead of penalizing
+    const volume = metrics.volume ?? 0;
+    if (volume === 0) {
+      score += 0.05; // Neutral volume contribution
+    } else {
+      const volumeScore = volume > 1000 ? 0.1 :
+                         volume > 100 ? 0.08 :
+                         volume > 10 ? 0.05 : 0;
+      score += volumeScore;
+    }
 
     return Math.max(0, Math.min(1, score));
   }
@@ -939,7 +1089,11 @@ export class Dream100ExpansionService {
     const easeWeight = 0.05;
 
     // Normalize volume (logarithmic scale for better distribution)
-    const normalizedVolume = Math.min(Math.log10(volume + 1) / 6, 1);
+    // When volume is 0 (missing data from Ahrefs), use neutral score of 0.5
+    // instead of penalizing keywords without volume data
+    const normalizedVolume = volume === 0 
+      ? 0.5 
+      : Math.min(Math.log10(volume + 1) / 6, 1);
 
     // Intent score (higher for commercial intents in Dream 100)
     const intentScore = intent === 'transactional' ? 1.0 :
@@ -1197,7 +1351,7 @@ export const Dream100ExpansionRequestSchema = z.object({
   intentFocus: z.enum(['commercial', 'informational', 'transactional', 'mixed']).default('mixed'),
   difficultyPreference: z.enum(['easy', 'medium', 'hard', 'mixed']).default('mixed'),
   budgetLimit: z.number().positive().optional(),
-  qualityThreshold: z.number().min(0).max(1).default(0.7),
+  qualityThreshold: z.number().min(0).max(1).default(0.3),
   includeCompetitorAnalysis: z.boolean().default(false)
 });
 

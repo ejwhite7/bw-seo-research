@@ -125,25 +125,42 @@ export interface AnthropicResponse<T> {
 export const ANTHROPIC_PROMPTS = {
   DREAM_100_EXPANSION: {
     name: 'dream_100_expansion',
-    system: `You are an expert SEO keyword researcher. Generate high-quality, relevant keywords based on seed terms. Focus on commercial and informational intent keywords that a content marketing team could realistically target.
-    
-Consider:
-- Search volume potential
-- Commercial viability  
-- Content creation feasibility
-- Semantic relationship to seeds
-- Intent diversity (70% informational, 20% commercial, 10% transactional)
+    system: `You are an expert SEO strategist generating "Dream 100" head terms - the core, high-volume keywords that anchor a content strategy.
 
-Return exactly the requested number of keywords. Be specific and avoid generic terms.`,
-    user: `Generate {target_count} keywords related to these seed terms: {seed_keywords}
-    
-Industry context: {industry}
+CRITICAL REQUIREMENTS:
+1. KEYWORD LENGTH: Each keyword MUST be 1-3 words maximum. No long-tail phrases.
+2. HEAD TERMS ONLY: Focus on broad, foundational keywords with high search volume potential
+3. COMMERCIAL VALUE: Prioritize keywords with business/buying intent
+
+Examples of GOOD Dream 100 keywords:
+- "private equity" (2 words, high volume head term)
+- "PE software" (2 words, commercial intent)
+- "deal sourcing" (2 words, industry specific)
+- "portfolio management" (2 words, broad term)
+
+Examples of BAD keywords (too long/specific):
+- "best private equity software for small firms" (too long)
+- "how to source deals in private equity" (too long, long-tail)
+- "private equity portfolio management best practices" (too long)
+
+Intent distribution for Dream 100:
+- 40% transactional (ready to buy/act)
+- 35% commercial (researching solutions)
+- 20% informational (learning about topic)
+- 5% navigational (brand/tool names)
+
+Return exactly {target_count} keywords. Every keyword must be 1-3 words.`,
+    user: `Generate {target_count} Dream 100 HEAD TERMS (1-3 words each) related to: {seed_keywords}
+
+Industry: {industry}
 Intent focus: {intent_focus}
 
+REMEMBER: Maximum 3 words per keyword. These are foundational head terms, not long-tail phrases.
+
 Format as JSON array:
-[{"keyword": "example keyword", "intent": "informational", "relevance_score": 0.85, "reasoning": "why this keyword is valuable"}]`,
+[{"keyword": "example term", "intent": "commercial", "relevance_score": 0.85, "reasoning": "brief reason"}]`,
     temperature: 0.2,
-    max_tokens: 2000
+    max_tokens: 8000
   },
   
   INTENT_CLASSIFICATION: {

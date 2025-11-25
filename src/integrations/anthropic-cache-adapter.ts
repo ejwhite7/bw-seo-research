@@ -1,4 +1,4 @@
-import { AnthropicClient } from './anthropic';
+import { AnthropicClient, DEFAULT_ANTHROPIC_MODEL } from './anthropic';
 import { CacheFactory, getCacheSystem } from '../lib/cache-init';
 import { CACHE_TTL } from '../lib/cache-integrations';
 import { 
@@ -192,11 +192,11 @@ export class CachedAnthropicClient {
         usage: {
           input_tokens: fromApi * 50,
           output_tokens: fromApi * 20,
-          model: 'claude-3-5-sonnet-20241022',
+          model: DEFAULT_ANTHROPIC_MODEL,
           cost_estimate: fromApi * 0.001,
           request_id: `intent_classification_${Date.now()}`
         },
-        model: 'claude-3-5-sonnet-20241022',
+        model: DEFAULT_ANTHROPIC_MODEL,
         finish_reason: 'complete',
         request_id: `intent_classification_${Date.now()}`,
         processing_time: 0 // Cached response has no processing time
@@ -222,7 +222,7 @@ export class CachedAnthropicClient {
     try {
       // Create cache key based on keywords, intent, and count
       const cacheKey = `titles:${intent}:${count}:${keywords.sort().join(',')}`;
-      const cached = await this.cache.get(cacheKey, 'claude-3-sonnet');
+      const cached = await this.cache.get(cacheKey, DEFAULT_ANTHROPIC_MODEL);
       
       if (cached) {
         console.log(`Content titles for [${keywords.join(', ')}] served from cache`);
@@ -247,7 +247,7 @@ export class CachedAnthropicClient {
       
       if (response.data) {
         // Cache the result
-        await this.cache.set(cacheKey, 'claude-3-sonnet', response.data);
+        await this.cache.set(cacheKey, DEFAULT_ANTHROPIC_MODEL, response.data);
         console.log(`Cached content titles for [${keywords.join(', ')}]`);
       }
       
@@ -274,7 +274,7 @@ export class CachedAnthropicClient {
     try {
       // Create cache key
       const cacheKey = `expand:${variationType}:${count}:${market}:${baseKeywords.sort().join(',')}`;
-      const cached = await this.cache.get(cacheKey, 'claude-3-sonnet');
+      const cached = await this.cache.get(cacheKey, DEFAULT_ANTHROPIC_MODEL);
       
       if (cached) {
         console.log(`Keyword variations for [${baseKeywords.join(', ')}] served from cache`);
@@ -299,7 +299,7 @@ export class CachedAnthropicClient {
       
       if (response.data) {
         // Cache the result
-        await this.cache.set(cacheKey, 'claude-3-sonnet', response.data);
+        await this.cache.set(cacheKey, DEFAULT_ANTHROPIC_MODEL, response.data);
         console.log(`Cached keyword variations for [${baseKeywords.join(', ')}]`);
       }
       
@@ -315,7 +315,7 @@ export class CachedAnthropicClient {
    */
   async processPrompt(
     prompt: string,
-    model: string = 'claude-3-sonnet-20240229',
+    model: string = DEFAULT_ANTHROPIC_MODEL,
     temperature: number = 0.1,
     maxTokens: number = 1000
   ): Promise<AnthropicResponse<string>> {
